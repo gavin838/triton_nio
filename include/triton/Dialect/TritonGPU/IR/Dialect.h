@@ -131,15 +131,15 @@ void dumpHWLayout(RankedTensorType tensorType);
 // Return a string representation of the layout of the tensor.
 std::string getLayoutStr(RankedTensorType tensorType, bool useHWPointOfView);
 
-template <template <typename> typename Vec, typename T>
-llvm::SmallVector<T> expandMatrixShapeWithBatch(Vec<T> s) {
+template <typename T>
+llvm::SmallVector<T> expandMatrixShapeWithBatch(llvm::ArrayRef<T> s) {
   llvm::SmallVector<T> expanded(3 - s.size(), 1);
   expanded.append(s.begin(), s.end());
   return expanded;
 }
 
-template <template <typename> typename Vec, typename T>
-llvm::SmallVector<T> expandMatrixOrderWithBatch(Vec<T> o) {
+template <typename T>
+llvm::SmallVector<T> expandMatrixOrderWithBatch(llvm::ArrayRef<T> o) {
   int oldRank = o.size();
   llvm::SmallVector<T> expanded(3, 0);
   for (int i = 0; i < oldRank; ++i)
