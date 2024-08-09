@@ -1,5 +1,4 @@
-from .cuda import libdevice as cuda_libdevice
-from .hip import libdevice as hip_libdevice
+import importlib
 from triton.language import core
 from functools import wraps
 from typing import TypeVar
@@ -14,12 +13,11 @@ def dispatch(fn: T) -> T:
     @wraps(fn)
     def wrapper(*args, **kwargs):
         _backend = kwargs["_builder"].options.backend_name
-        if _backend == 'cuda':
-            _curr_libdevice_module = cuda_libdevice
-        elif _backend == 'hip':
-            _curr_libdevice_module = hip_libdevice
-        else:
+        spec = importlib.util.find_spec(f"triton.language.extra.{_backend}.libdevice")
+        if spec is None:
             raise RuntimeError('unknown backend')
+        else:
+            _curr_libdevice_module = importlib.util.module_from_spec(spec)
 
         try:
             _impl = getattr(_curr_libdevice_module, fn.__name__)
