@@ -29,7 +29,8 @@ from wheel.bdist_wheel import bdist_wheel
 @dataclass
 class Backend:
     name: str
-    package_data: dict
+    package_data: list[str]
+    language_package_data: list[str]
     src_dir: str
     backend_dir: str
     language_dir: str
@@ -70,11 +71,13 @@ class BackendInstaller:
         install_dir = os.path.join(os.path.dirname(__file__), "triton", "backends", backend_name)
         package_data = [f"{os.path.relpath(p, backend_path)}/*" for p, _, _, in os.walk(backend_path)]
 
+        language_package_data = []
         if language_dir is not None:
-            package_data += [f"{os.path.relpath(p, language_dir)}/*" for p, _, _, in os.walk(language_dir)]
+            language_package_data = [f"{os.path.relpath(p, language_dir)}/*" for p, _, _, in os.walk(language_dir)]
 
-        return Backend(name=backend_name, package_data=package_data, src_dir=backend_src_dir, backend_dir=backend_path,
-                       language_dir=language_dir, install_dir=install_dir, is_external=is_external)
+        return Backend(name=backend_name, package_data=package_data, language_package_data=language_package_data,
+                       src_dir=backend_src_dir, backend_dir=backend_path, language_dir=language_dir,
+                       install_dir=install_dir, is_external=is_external)
 
     # Copy all in-tree backends under triton/third_party.
     @staticmethod
@@ -600,6 +603,7 @@ package_data = {
     "triton/tools": ["compile.h", "compile.c"],
     **{f"triton/backends/{b.name}": b.package_data
        for b in backends},
+    "triton/language/extra": sum((b.language_package_data for b in backends), [])
 }
 
 
