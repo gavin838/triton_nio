@@ -69,6 +69,10 @@ class BackendInstaller:
 
         install_dir = os.path.join(os.path.dirname(__file__), "triton", "backends", backend_name)
         package_data = [f"{os.path.relpath(p, backend_path)}/*" for p, _, _, in os.walk(backend_path)]
+
+        if language_dir is not None:
+            package_data += [f"{os.path.relpath(p, language_dir)}/*" for p, _, _, in os.walk(language_dir)]
+
         return Backend(name=backend_name, package_data=package_data, src_dir=backend_src_dir, backend_dir=backend_path,
                        language_dir=language_dir, install_dir=install_dir, is_external=is_external)
 
