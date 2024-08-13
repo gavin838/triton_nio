@@ -1,4 +1,4 @@
-import importlib
+import importlib.util
 from triton.language import core
 from functools import wraps
 from typing import TypeVar
@@ -18,6 +18,7 @@ def dispatch(fn: T) -> T:
             raise RuntimeError('unknown backend')
         else:
             _curr_libdevice_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(_curr_libdevice_module)
 
         try:
             _impl = getattr(_curr_libdevice_module, fn.__name__)
