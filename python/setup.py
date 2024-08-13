@@ -606,6 +606,8 @@ package_data = {
     "triton/language/extra": sum((b.language_package_data for b in backends), [])
 }
 
+print(package_data)
+
 
 def get_language_extra_packages():
     packages = []
