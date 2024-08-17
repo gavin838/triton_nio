@@ -106,8 +106,10 @@ public:
       RewriterBase &rewriter);
   /// Emits the epilogue, this creates `maxStage - 1` part which will contain
   /// operations from stages [i; maxStage], where i is the part index.
-  void emitEpilogue(RewriterBase &rewriter,
-                    llvm::SmallVector<Value> &returnValues);
+  void
+  emitEpilogue(RewriterBase &rewriter,
+               const llvm::MapVector<Value, LiverangeInfo> &crossStageValues,
+               llvm::SmallVector<Value> &returnValues);
 };
 
 bool LoopPipelinerInternal::initializeLoopInfo(
@@ -143,10 +145,6 @@ bool LoopPipelinerInternal::initializeLoopInfo(
   predicateFn = options.predicateFn;
   if ((!peelEpilogue || dynamicLoop) && predicateFn == nullptr) {
     LDBG("--no epilogue or predicate set -> BAIL");
-    return false;
-  }
-  if (dynamicLoop && peelEpilogue) {
-    LDBG("--dynamic loop doesn't support epilogue yet -> BAIL");
     return false;
   }
   std::vector<std::pair<Operation *, unsigned>> schedule;
@@ -643,11 +641,30 @@ LogicalResult LoopPipelinerInternal::createKernel(
 }
 
 void LoopPipelinerInternal::emitEpilogue(
-    RewriterBase &rewriter, llvm::SmallVector<Value> &returnValues) {
+    RewriterBase &rewriter,
+    const llvm::MapVector<Value, LiverangeInfo> &crossStageValues,
+    llvm::SmallVector<Value> &returnValues) {
+  Location loc = forOp.getLoc();
+  llvm::SmallVector<Type> returnTypes;
+  llvm::for_each(returnValues,
+                 [&](Value v) { returnTypes.push_back(v.getType()); });
+
+  // Capture starting versions from the original `for` results.
+  // ?? Is there a simple way to compute below.
+  llvm::SmallVector<unsigned> resultVersions(forOp.getResults().size(), 0);
+  for (const auto &retVal :
+       llvm::enumerate(forOp.getBody()->getTerminator()->getOperands())) {
+    Operation *def = retVal.value().getDefiningOp();
+    auto defStage = stages.find(def);
+    if (defStage == stages.end()) {
+      resultVersions[retVal.index()] = maxStage;
+    } else if (defStage->second > 0) {
+      resultVersions[retVal.index()] = maxStage - defStage->second + 1;
+    }
+  }
   // Emit different versions of the induction variable. They will be
   // removed by dead code if not used.
   for (int64_t i = 0; i < maxStage; i++) {
-    Location loc = forOp.getLoc();
     Type t = lb.getType();
     Value minusOne =
         rewriter.create<arith::ConstantOp>(loc, rewriter.getIntegerAttr(t, -1));
@@ -670,40 +687,96 @@ void LoopPipelinerInternal::emitEpilogue(
   // Emit `maxStage - 1` epilogue part that includes operations from stages
   // [i; maxStage].
   for (int64_t i = 1; i <= maxStage; i++) {
+    OpBuilder::InsertionGuard g(rewriter);
+    scf::IfOp guardIfOp;
+    if (dynamicLoop) {
+      // if (lb[i] < ub) {
+      Value lbStage = valueMapping[forOp.getInductionVar()][i];
+      Value pred = rewriter.create<arith::CmpIOp>(
+          loc, arith::CmpIPredicate::slt, lbStage, ub);
+      guardIfOp = rewriter.create<scf::IfOp>(loc, returnTypes, pred,
+                                             /*elseBranch*/ true);
+      // else return carried results
+      rewriter.setInsertionPointToStart(guardIfOp.elseBlock());
+      rewriter.create<scf::YieldOp>(loc, returnValues);
+      // then body
+      rewriter.setInsertionPointToStart(guardIfOp.thenBlock());
+    }
     for (Operation *op : opOrder) {
       if (stages[op] < i)
         continue;
+      unsigned currentVersion = maxStage - stages[op] + i;
+      unsigned nextVersion = currentVersion + 1;
       Operation *newOp =
           cloneAndUpdateOperands(rewriter, op, [&](OpOperand *newOperand) {
             auto it = valueMapping.find(newOperand->get());
-            if (it != valueMapping.end()) {
-              Value replacement = it->second[maxStage - stages[op] + i];
-              newOperand->set(replacement);
-            }
+            if (it != valueMapping.end())
+              newOperand->set(it->second[currentVersion]);
           });
       if (annotateFn)
         annotateFn(newOp, triton::PipeliningOption::PipelinerPart::Epilogue,
                    i - 1);
-      for (unsigned destId : llvm::seq(unsigned(0), op->getNumResults())) {
-        setValueMapping(op->getResult(destId), newOp->getResult(destId),
-                        maxStage - stages[op] + i);
+      for (auto [oldRes, newRes] :
+           llvm::zip(op->getResults(), newOp->getResults())) {
+        setValueMapping(oldRes, newRes, currentVersion);
         // If the value is a loop carried dependency update the loop argument
         // mapping and keep track of the last version to replace the original
         // forOp uses.
         for (OpOperand &operand :
              forOp.getBody()->getTerminator()->getOpOperands()) {
-          if (operand.get() != op->getResult(destId))
+          if (operand.get() != oldRes)
             continue;
-          unsigned version = maxStage - stages[op] + i + 1;
           // If the version is greater than maxStage it means it maps to the
           // original forOp returned value.
-          if (version > maxStage) {
-            returnValues[operand.getOperandNumber()] = newOp->getResult(destId);
-            continue;
-          }
-          setValueMapping(forOp.getRegionIterArgs()[operand.getOperandNumber()],
-                          newOp->getResult(destId), version);
+          returnValues[operand.getOperandNumber()] = newRes;
+          if (nextVersion <= maxStage)
+            setValueMapping(
+                forOp.getRegionIterArgs()[operand.getOperandNumber()], newRes,
+                nextVersion);
         }
+        unsigned resI = forOp.getResults().size();
+        for (auto &it : crossStageValues) {
+          unsigned numVersionReturned =
+              it.second.lastUseStage - it.second.defStage;
+          if (it.first == oldRes) {
+            // shift all values first
+            for (unsigned i = numVersionReturned - 1; i > 0; i--)
+              returnValues[resI + i] = returnValues[resI + i - 1];
+            returnValues[resI] = newRes;
+          }
+          resI += numVersionReturned;
+        }
+      }
+    }
+    if (dynamicLoop) {
+      // Add yield with current `returnValues`.
+      rewriter.create<scf::YieldOp>(loc, returnValues);
+      returnValues = guardIfOp.getResults();
+
+      // Map the guard results related to the `for` results.
+      auto forArgs = forOp.getRegionIterArgs();
+      for (OpOperand &operand :
+           forOp.getBody()->getTerminator()->getOpOperands()) {
+        auto ri = operand.getOperandNumber();
+        resultVersions[ri]++;
+        if (resultVersions[ri] <= maxStage)
+          setValueMapping(forArgs[ri], guardIfOp.getResult(ri),
+                          resultVersions[ri]);
+      }
+      // Map the rest of guard results.
+      unsigned resI = forOp.getResults().size();
+      for (auto &it : crossStageValues) {
+        int64_t version = maxStage - it.second.lastUseStage + 1 + i;
+        unsigned numVersionReturned =
+            it.second.lastUseStage - it.second.defStage;
+        for (unsigned ii = 1; ii < numVersionReturned; ii++) {
+          if (version + ii <= maxStage)
+            setValueMapping(it.first, guardIfOp.getResult(resI + ii),
+                            version + ii);
+        }
+        if (version <= maxStage)
+          setValueMapping(it.first, guardIfOp.getResult(resI), version);
+        resI += numVersionReturned;
       }
     }
   }
@@ -759,17 +832,18 @@ mlir::triton::pipelineForLoop(RewriterBase &rewriter, ForOp forOp,
                                     rewriter)))
     return failure();
 
-  llvm::SmallVector<Value> returnValues =
-      newForOp.getResults().take_front(forOp->getNumResults());
+  llvm::SmallVector<Value> returnValues = newForOp.getResults();
   if (options.peelEpilogue) {
     // 4. Emit the epilogue after the new forOp.
     rewriter.setInsertionPointAfter(newForOp);
-    pipeliner.emitEpilogue(rewriter, returnValues);
+    pipeliner.emitEpilogue(rewriter, crossStageValues, returnValues);
   }
   // 5. Erase the original loop and replace the uses with the epilogue output.
-  if (forOp->getNumResults() > 0)
+  if (forOp->getNumResults() > 0) {
+    returnValues.pop_back_n(newForOp.getResults().size() -
+                            forOp.getResults().size());
     rewriter.replaceOp(forOp, returnValues);
-  else
+  } else
     rewriter.eraseOp(forOp);
 
   return newForOp;
