@@ -59,6 +59,7 @@ inline void registerTritonDialects(mlir::DialectRegistry &registry) {
   mlir::registerTritonAMDGPUOptimizeEpilogue();
   mlir::registerTritonAMDGPUOptimizeSmallDotOperands();
   mlir::registerTritonAMDGPUReorderInstructions();
+  mlir::registerTritonAMDGPUHoistReduction();
   mlir::registerTritonAMDGPUStreamPipeline();
   mlir::registerTritonAMDGPUStreamPipelineV2();
 
