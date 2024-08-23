@@ -16,10 +16,7 @@
 
 namespace {
 
-using ::mlir::isLayoutMmaV1;
 using ::mlir::LLVM::getMultiDimOffset;
-using ::mlir::LLVM::getSharedMemoryObjectFromStruct;
-using ::mlir::LLVM::getStridesFromShapeAndOrder;
 using ::mlir::LLVM::getWrappedMultiDimOffset;
 using ::mlir::LLVM::linearize;
 
@@ -41,17 +38,13 @@ public:
     RankedTensorType dstTy = op.getType();
     Attribute srcLayout = srcTy.getEncoding();
     Attribute dstLayout = dstTy.getEncoding();
-    if (isSupported(srcLayout, dstLayout)) {
+    if (isaDistributedLayout(srcLayout) && isaDistributedLayout(dstLayout)) {
       return lowerDistributedToDistributed(op, adaptor, rewriter);
     }
     return failure();
   }
 
 private:
-  bool isSupported(Attribute srcLayout, Attribute dstLayout) const {
-    return isaDistributedLayout(srcLayout) && isaDistributedLayout(dstLayout) &&
-           !isLayoutMmaV1(srcLayout) && !isLayoutMmaV1(dstLayout);
-  }
   // shared memory rd/st for blocked or mma layout with data padding
   void processReplica(Location loc, ConversionPatternRewriter &rewriter,
                       bool stNotRd, RankedTensorType type,
@@ -376,6 +369,13 @@ struct ConvertLayoutOpUsingLinearLayoutsConversion
         if (targetInfo.canUseStMatrix(srcTy, scratchConfig.paddedRepShape,
                                       scratchConfig.order,
                                       /*accumNumReplicates=*/1)) {
+          return false;
+        }
+        if (nvidiaMma.getVersionMajor() == 1) {
+          llvm::report_fatal_error(
+              "Volta MMA layout conversion has been removed. If you need this, "
+              "please refer to `ampereMmaToLinearLayout` and implement "
+              "`voltaMmaToLinearLayout`.");
           return false;
         }
         return true;
