@@ -241,13 +241,13 @@ static const std::string S8_to_Bf16_sm90 =
     "{                               \n"
     ".reg .b32 l<3>;                 \n"
     ".reg .b32 h<3>;                 \n"
-    "prmt.b32 l0, $2, 0x43, 0x4140;  \n"  // Unpack to shifted bf16.
+    "prmt.b32 l0, $2, 0x43, 0x4140;  \n" // Unpack to shifted bf16.
     "prmt.b32 h0, $2, 0x43, 0x4342;  \n"
-    "and.b32 l1, l0, 0xff7fff7f;     \n"  // Zero the least exp bit.
+    "and.b32 l1, l0, 0xff7fff7f;     \n" // Zero the least exp bit.
     "and.b32 h1, h0, 0xff7fff7f;     \n"
-    "and.b32 l2, l0, 0xff80ff80;     \n"  // Zero the mantissa.
+    "and.b32 l2, l0, 0xff80ff80;     \n" // Zero the mantissa.
     "and.b32 h2, h0, 0xff80ff80;     \n"
-    "sub.bf16x2 $0, l1, l2;          \n"  // Subtract the offset.
+    "sub.bf16x2 $0, l1, l2;          \n" // Subtract the offset.
     "sub.bf16x2 $1, h1, h2;          \n"
     "}";
 
