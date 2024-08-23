@@ -710,35 +710,29 @@ LinearLayout::divideRight(const LinearLayout &divisor) {
   // In some cases, we may have input dimensions that map to all zeros for
   // certain output dimensions.  For example, suppose the current layout is:
   //
-  //              out-dim0  out-dim1
-  //   in-dim0 |      0        0
-  //   in-dim1 |      0        1
-  //   in-dim2 |      0        0
+  //  - in-dim0=1 -> (0, 1)
+  //  where out dims are: [out-dim0 (size 1), out-dim1 (size 2)]
   //
   // And the layout of the divisor is:
   //
-  //              out-dim1
-  //   in-dim1 |      1
+  //  - in-dim0=1 -> (0, 1)
+  //  where out dims are: [out-dim1 (size 2)]
   //
   // The quotient should be:
   //
-  //              out-dim0
-  //   in-dim0 |   size 1
-  //   in-dim1 |   size 1
-  //   in-dim2 |   size 1
+  //   - in-dim0 is a size 1 dimension
+  //  where out dims are: [out-dim0 (size 1)]
   //
   // If we remove all input dimensions that map to zero, we would get an
-  // empty layout.  Then, empty() * divisor = L("in-dim0", "out-dim1"), which is
-  // different from the original layout, causing `divideRight` to fail!  As a
-  // result, we conservatively erase input dimensions only when the number of
-  // output dimensions matches that of the divisor.
-  if (getNumOutDims() == divisor.getNumOutDims()) {
-    for (auto inDimName : llvm::reverse(getInDimNames())) {
-      if (newBases[inDimName].empty() && divisor.hasInDim(inDimName)) {
-        newBases.erase(inDimName);
-      } else {
-        break;
-      }
+  // empty layout.  Then, empty() * divisor = L("in-dim0") -> ("out-dim1"),
+  // which is different from the original layout, causing `divideRight` to fail!
+  // As a result, we conservatively erase input dimensions only when the number
+  // of output dimensions matches that of the divisor.
+  for (auto inDimName : llvm::reverse(getInDimNames())) {
+    if (newBases[inDimName].empty() && divisor.hasInDim(inDimName)) {
+      newBases.erase(inDimName);
+    } else {
+      break;
     }
   }
 

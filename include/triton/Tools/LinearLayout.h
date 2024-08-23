@@ -584,9 +584,9 @@ public:
   // dimensions. `a` may contain additional empty input dimensions compared to
   // `a'`. For example:
   //
-  //   a = ("in1", "in2") -> ("out1", "out2")
-  //   a' = ("in1") -> ("out1")
-  //   b = ("in2") -> ("out2")
+  //   a = L("in1", "in2") -> ("out1", "out2")
+  //   a' = L("in1") -> ("out1")
+  //   b = L("in2") -> ("out2")
   //
   // c = a * b = a' * b if "in1" is an empty dimension that maps everything
   // to 0.
