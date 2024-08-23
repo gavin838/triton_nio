@@ -672,18 +672,18 @@ LinearLayout::divideRight(const LinearLayout &divisor) {
 
   // Only erase the trailing empty out-dims.
   // For example, consider l = o / r, where:
-  //   o = ["out0", "out1", "out2", "out3"]
-  //   r = ["out1", "out3"]
+  //   out-dims(o) = ["out0", "out1", "out2", "out3"]
+  //   out-dims(r) = ["out1", "out3"]
   //
   // If we remove "out1" from o, we get:
-  //   l = ["out0", "out2", "out3"]
-  // Then, l * r = ["out0", "out2", "out3"] * ["out1", "out3"] = ["out0",
-  // "out2", "out3", "out1"] which does not match the original o.
+  //   out-dims(l) = ["out0", "out2", "out3"]
+  // Then, out-dims(l * r) = ["out0", "out2", "out3"] * ["out1", "out3"] =
+  // ["out0", "out2", "out3", "out1"] which does not match the original o.
   //
   // However, if we only remove "out3", we get:
-  //   l = ["out0", "out1", "out2"]
-  // Then, l * r = ["out0", "out1", "out2"] * ["out1", "out3"] = ["out0",
-  // "out1", "out2", "out3"] which matches the original o.
+  //   out-dims(l) = ["out0", "out1", "out2"]
+  // Then, out-dims(l * r) = ["out0", "out1", "out2"] * ["out1", "out3"] =
+  // ["out0", "out1", "out2", "out3"] which matches the original o.
   llvm::SmallVector<size_t> emptyOutDimIndices;
   for (int outDimIdx = outDims.size() - 1; outDimIdx >= 0; outDimIdx--) {
     if (sizeOneOutDimIndices.contains(outDimIdx)) {
@@ -723,11 +723,11 @@ LinearLayout::divideRight(const LinearLayout &divisor) {
   //   in-dim1 |   size 1
   //   in-dim2 |   size 1
   //
-  // If we instead remove all input dimensions that map to zero, we would get an
-  // empty layout.  Then empty() * divisor = L("in-dim0", "out-dim1") which is
-  // different from the original layout.  As a result, we conservatively erase
-  // input dimensions only when the number of output dimensions matches that of
-  // the divisor.
+  // If we remove all input dimensions that map to zero, we would get an
+  // empty layout.  Then, empty() * divisor = L("in-dim0", "out-dim1"), which is
+  // different from the original layout, causing `divideRight` to fail!  As a
+  // result, we conservatively erase input dimensions only when the number of
+  // output dimensions matches that of the divisor.
   if (getNumOutDims() == divisor.getNumOutDims()) {
     for (auto inDimName : llvm::reverse(getInDimNames())) {
       if (newBases[inDimName].empty() && divisor.hasInDim(inDimName)) {

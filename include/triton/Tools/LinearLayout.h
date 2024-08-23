@@ -583,11 +583,11 @@ public:
   // Note that a' and a may not have exactly the same input/output dimensions.
   // a' may contain additional empty input dimensions. For example:
   //
-  //   La = ("in1", "in2") -> ("out1", "out2")
-  //   La' = ("in1") -> ("out1")
-  //   Lb = ("in2") -> ("out2")
+  //   a = ("in1", "in2") -> ("out1", "out2")
+  //   a' = ("in1") -> ("out1")
+  //   b = ("in2") -> ("out2")
   //
-  // Lc = La * Lb = La' * Lb if "in1" is an empty dimension that maps everything
+  // c = a * b = La' * b if "in1" is an empty dimension that maps everything
   // to 0.
   //
   // TODO(jlebar): Implement divideLeft.
