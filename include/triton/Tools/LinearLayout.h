@@ -575,7 +575,7 @@ public:
     return *this;
   }
 
-  // divideLeft and divideRight are the inverses of the operator *.
+  // divideLeft and divideRight are the inverses of operator *.
   //
   // If c = a * b, then a' = c.divideRight(b) and b' = c.divideLeft(a).
   // a' * b = c and a * b' = c.
