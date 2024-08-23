@@ -543,6 +543,50 @@ bool isMfmaToDotShortcut(RankedTensorType srcTy, RankedTensorType dstTy) {
          (srcTy.getElementType().isF16() || srcTy.getElementType().isBF16());
 }
 
+bool isBlockedToDotShortcut(RankedTensorType &srcTy, RankedTensorType &dstTy) {
+  auto blockedLayout = dyn_cast<BlockedEncodingAttr>(srcTy.getEncoding());
+  auto dotOperandLayout = dyn_cast<DotOperandEncodingAttr>(dstTy.getEncoding());
+  if (blockedLayout == nullptr || dotOperandLayout == nullptr)
+    return false;
+  auto parentLayout =
+      dyn_cast<BlockedEncodingAttr>(dotOperandLayout.getParent());
+  if (parentLayout == nullptr)
+    return false;
+  auto opShape = srcTy.getShape();
+  auto rank = opShape.size();
+
+  int kDim = dotOperandLayout.getOpIdx() == 0 ? rank - 1 : rank - 2;
+  int nonKDim = dotOperandLayout.getOpIdx() == 0 ? rank - 2 : rank - 1;
+  auto ctaLayout = blockedLayout.getCTALayout();
+
+  bool ctaLayoutCompatible =
+      ctaLayout.getCTASplitNum()[kDim] == 1 &&
+      blockedLayout.getCTALayout() == parentLayout.getCTALayout();
+  bool threadHoldsWholeKDim =
+      blockedLayout.getSizePerThread()[kDim] == opShape[kDim];
+  bool nonKDimCompatible =
+      blockedLayout.getOrder() == parentLayout.getOrder() &&
+      blockedLayout.getSizePerThread()[nonKDim] ==
+          parentLayout.getSizePerThread()[nonKDim] &&
+      blockedLayout.getThreadsPerWarp()[nonKDim] ==
+          parentLayout.getThreadsPerWarp()[nonKDim] &&
+      blockedLayout.getWarpsPerCTA()[nonKDim] ==
+          parentLayout.getWarpsPerCTA()[nonKDim];
+  bool matrixDimsCompatible =
+      ctaLayoutCompatible && threadHoldsWholeKDim && nonKDimCompatible;
+  if (rank == 2)
+    return matrixDimsCompatible;
+  // additional check for batch dimension
+  assert(rank == 3);
+  bool bDimCompatible =
+      blockedLayout.getSizePerThread()[0] ==
+          parentLayout.getSizePerThread()[0] &&
+      blockedLayout.getThreadsPerWarp()[0] ==
+          parentLayout.getThreadsPerWarp()[0] &&
+      blockedLayout.getWarpsPerCTA()[0] == parentLayout.getWarpsPerCTA()[0];
+  return matrixDimsCompatible && bDimCompatible;
+}
+
 // For MMAV3 dotOperand layout matches mma operand for f16 and bf16 cases.
 bool matchMmaV3AndDotOperandLayout(RankedTensorType srcTy,
                                    RankedTensorType dstTy) {
@@ -622,7 +666,8 @@ bool cvtNeedsSharedMemory(RankedTensorType srcTy, RankedTensorType dstTy) {
   // supported yet in Triton's backend.
   return !cvtReordersRegisters(srcTy, dstTy) &&
          !isMmaToDotShortcut(srcTy, dstTy) &&
-         !isMfmaToDotShortcut(srcTy, dstTy);
+         !isMfmaToDotShortcut(srcTy, dstTy) &&
+         !isBlockedToDotShortcut(srcTy, dstTy);
 }
 
 bool atomicNeedsSharedMemory(Value value) {
