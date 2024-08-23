@@ -223,19 +223,31 @@ static const Fp8ConversionDesc Fp32_to_Fp8E5M2 = {
     "cvt.rn.satfinite.e5m2x2.f32 $0, $2, $1; \n", 32, 16, 2};
 
 /* ----- Packed integer to BF16 ------ */
-// Hopper has very low throughput of most conversions, so we rely on bit
-// tricks instead of cvt instructions.
 static const std::string S8_to_Bf16 =
+    "{                                           \n"
+    ".reg .s8 s<4>;                              \n"
+    ".reg .f32 f<4>;                             \n"
+    "mov.b32 {s0, s1, s2, s3}, $2;               \n" // unpack
+    "cvt.rn.f32.s8 f0, s0;                       \n" // no s8->bf16 pre-Hopper
+    "cvt.rn.f32.s8 f1, s1;                       \n" // fi[0:15] is always 0
+    "cvt.rn.f32.s8 f2, s2;                       \n" //
+    "cvt.rn.f32.s8 f3, s3;                       \n" //
+    "prmt.b32 $0, f0, f1, 0x7632;                \n" // f32->bf16 + pack
+    "prmt.b32 $1, f2, f3, 0x7632;                \n" //
+    "}";
+// Conversions have low throughput, rely on bit tricks instead of cvt
+// instruction on Hopper and later GPUs.
+static const std::string S8_to_Bf16_sm90 =
     "{                               \n"
     ".reg .b32 l<3>;                 \n"
     ".reg .b32 h<3>;                 \n"
-    "prmt.b32 l0, $2, 0x43, 0x4140;  \n" // Unpack to shifted bf16.
+    "prmt.b32 l0, $2, 0x43, 0x4140;  \n"  // Unpack to shifted bf16.
     "prmt.b32 h0, $2, 0x43, 0x4342;  \n"
-    "and.b32 l1, l0, 0xff7fff7f;     \n" // Zero the least exp bit.
+    "and.b32 l1, l0, 0xff7fff7f;     \n"  // Zero the least exp bit.
     "and.b32 h1, h0, 0xff7fff7f;     \n"
-    "and.b32 l2, l0, 0xff80ff80;     \n" // Zero the mantissa.
+    "and.b32 l2, l0, 0xff80ff80;     \n"  // Zero the mantissa.
     "and.b32 h2, h0, 0xff80ff80;     \n"
-    "sub.bf16x2 $0, l1, l2;          \n" // Subtract the offset.
+    "sub.bf16x2 $0, l1, l2;          \n"  // Subtract the offset.
     "sub.bf16x2 $1, h1, h2;          \n"
     "}";
 
@@ -650,8 +662,14 @@ struct FSubOpConversion
 struct SIToFPOpConversion
     : ElementwiseOpConversionBase<arith::SIToFPOp, SIToFPOpConversion> {
   using Base = ElementwiseOpConversionBase<arith::SIToFPOp, SIToFPOpConversion>;
-  using Base::Base;
   using Adaptor = typename Base::OpAdaptor;
+
+  explicit SIToFPOpConversion(LLVMTypeConverter &typeConverter,
+                              ModuleAxisInfoAnalysis &axisAnalysisPass,
+                              int computeCapability,
+                              PatternBenefit benefit = patternBenefitDefault)
+      : ElementwiseOpConversionBase(typeConverter, axisAnalysisPass, benefit),
+        computeCapability(computeCapability) {}
 
   SmallVector<Value> createDestOps(arith::SIToFPOp op, OpAdaptor adaptor,
                                    ConversionPatternRewriter &rewriter,
@@ -661,7 +679,8 @@ struct SIToFPOpConversion
     Type outElemTy = getElementType(op.getOut());
     if (outElemTy.isBF16() && inElemTy.isInteger(8) && operands.size() >= 4) {
       auto cvtFunc = makeConverterFromPtx(
-          S8_to_Bf16, getTypeConverter()->convertType(inElemTy),
+          computeCapability >= 90 ? S8_to_Bf16_sm90 : S8_to_Bf16,
+          getTypeConverter()->convertType(inElemTy),
           getTypeConverter()->convertType(outElemTy));
       SmallVector<Value> inVals = {operands[0][0], operands[1][0],
                                    operands[2][0], operands[3][0]};
@@ -676,6 +695,9 @@ struct SIToFPOpConversion
       return {rewriter.create<LLVM::SIToFPOp>(loc, elemTy, operands[0][0])};
     }
   }
+
+ private:
+  int computeCapability;
 };
 
 struct FPToSIOpConversion
@@ -934,8 +956,9 @@ void mlir::triton::NVIDIA::populateElementwiseOpToLLVMPatterns(
   patterns.add<ExtFOpConversion>(typeConverter, axisInfoAnalysis, benefit);
   patterns.add<TruncFOpConversion>(typeConverter, axisInfoAnalysis, benefit);
   patterns.add<FPToSIOpConversion>(typeConverter, axisInfoAnalysis, benefit);
-  patterns.add<SIToFPOpConversion>(typeConverter, axisInfoAnalysis, benefit);
 
+  patterns.add<SIToFPOpConversion>(typeConverter, axisInfoAnalysis,
+                                   computeCapability, benefit);
   patterns.add<FpToFpOpConversion>(typeConverter, axisInfoAnalysis,
                                    computeCapability, benefit);
 
