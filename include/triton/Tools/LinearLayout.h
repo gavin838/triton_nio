@@ -580,8 +580,9 @@ public:
   // If c = a * b, then a' = c.divideRight(b) and b' = c.divideLeft(a).
   // a' * b = c and a * b' = c.
   //
-  // Note that a' and a may not have exactly the same input/output dimensions.
-  // a may contain additional empty input dimensions than a'. For example:
+  // Note that `a'` and `a` may not have exactly the same input/output
+  // dimensions. `a` may contain additional empty input dimensions compared to
+  // `a'`. For example:
   //
   //   a = ("in1", "in2") -> ("out1", "out2")
   //   a' = ("in1") -> ("out1")

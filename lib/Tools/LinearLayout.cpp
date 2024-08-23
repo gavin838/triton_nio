@@ -165,10 +165,10 @@ void assertDimsSubsetIgnoringOrder(T &&small, U &&big) {
   }
 }
 
+// Check that elements common to both outerDimsRange and innerDimsRange
+// appear in the same relative order.
 template <typename T, typename U>
 void assertCommonDimsSameOrder(T &&outerDims, U &&innerDims) {
-  // Check that elements common to both outerDimsRange and innerDimsRange
-  // appear in the same relative order.
   SmallDenseSet<StringAttr> outerDimsSet(outerDims.begin(), outerDims.end());
   SmallDenseSet<StringAttr> innerDimsSet(innerDims.begin(), innerDims.end());
 
@@ -187,10 +187,9 @@ void assertCommonDimsSameOrder(T &&outerDims, U &&innerDims) {
   }
 
   if (outerCommonDims != innerCommonDims) {
-    llvm::report_fatal_error(
-        "Cannot multiply layouts.  All in/out dimensions common to both "
-        "layouts must appear in the same relative order, but they "
-        "don't.\n");
+    llvm::report_fatal_error("All in/out dimensions common to both layouts "
+                             "must appear in the same relative order, but they "
+                             "don't.\n");
   }
 }
 
