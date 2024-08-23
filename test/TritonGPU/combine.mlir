@@ -1172,8 +1172,8 @@ tt.func public @if_no_tensor(%arg0: !tt.ptr<f32> {tt.divisibility = 16 : i32}, %
 // -----
 
 // Check if the SimplifyReduceCvt rewriter pattern doesn't hang.
-// XXX(Keren): investigate why there's a remaining convert_layout.
 // CHECK-LABEL: reduce_cvt
+// CHECK-NOT: triton_gpu.convert_layout
 #blocked = #triton_gpu.blocked<{sizePerThread = [1, 1], threadsPerWarp = [1, 32], warpsPerCTA = [1, 2], order = [0, 1]}>
 #blocked1 = #triton_gpu.blocked<{sizePerThread = [1], threadsPerWarp = [32], warpsPerCTA = [2], order = [0]}>
 #blocked2 = #triton_gpu.blocked<{sizePerThread = [1, 1], threadsPerWarp = [32, 1], warpsPerCTA = [2, 1], order = [0, 1]}>
